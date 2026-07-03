@@ -37,8 +37,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
       - name: 安装依赖
-        run: npm run install
-        if: ${{ steps.cache-npm.outputs.cache-hit != 'true' }}
+        run: cd api && npm ci --no-fund --no-audit
       - name: 签到
         run: npm run main
         env:

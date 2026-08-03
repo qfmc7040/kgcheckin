@@ -6,7 +6,7 @@ let cachedProxyRaw;
 let cachedProxy;
 
 /**
- * Parse CLI arguments (only `--key=value` form).
+ * 解析命令行参数（仅 --key=value 格式）
  * @param {string[] | undefined} args
  * @returns {Record<string, string>}
  */
@@ -33,7 +33,8 @@ function parseCliArgs(args) {
 }
 
 /**
- * Apply CLI overrides for known parameters (proxy/platform/port).
+ * 应用命令行参数覆盖环境变量
+ * 支持：--proxy / --platform / --guid / --dev / --mac / --port
  * @param {string[] | undefined} args
  */
 function applyCliOverrides(args) {
@@ -47,6 +48,18 @@ function applyCliOverrides(args) {
     process.env.platform = parsed.platform;
   }
 
+  if (parsed.guid) {
+    process.env.KUGOU_API_GUID = parsed.guid;
+  }
+
+  if (parsed.dev) {
+    process.env.KUGOU_API_DEV = parsed.dev;
+  }
+
+  if (parsed.mac) {
+    process.env.KUGOU_API_MAC = parsed.mac;
+  }
+
   if (parsed.port) {
     const port = Number(parsed.port);
     if (!Number.isNaN(port) && port > 0) {
@@ -58,8 +71,7 @@ function applyCliOverrides(args) {
 }
 
 /**
- * Resolve proxy configuration from environment variable.
- * Caches latest parsed result to avoid repeated parsing.
+ * 从环境变量解析代理配置，支持缓存避免重复解析
  * @returns {import('axios').AxiosProxyConfig | null}
  */
 function resolveProxy() {

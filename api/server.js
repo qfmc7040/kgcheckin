@@ -1,149 +1,49 @@
+/**
+ * KuGouMusic API 服务器核心模块
+ *
+ * 基于 Express 框架构建的 HTTP 服务，负责动态加载 API 模块、处理 CORS、
+ * 解析 Cookie、注入平台标识、缓存响应、统一错误处理。
+ */
 const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
 const decode = require('safe-decode-uri-component');
-const { cookieToJson } = require('./util/util');
+const { cookieToJson, randomString, getGuid, calculateMid, generateWebGLHash } = require('./util/util');
+const { cryptoMd5 } = require('./util/crypto');
 const { createRequest } = require('./util/request');
 const dotenv = require('dotenv');
 const cache = require('./util/apicache').middleware;
 
-const SENSITIVE_QUERY_KEYS = new Set([
-  'token',
-  'vip_token',
-  'viptoken',
-  'cookie',
-  'authorization',
-  'code',
-  'mobile',
-  'phone',
-  'qrcode',
-  'qrcode_img',
-  'qrcode_txt',
-  'qrimg',
-  'key',
-  'p',
-  'p2',
-  'p3',
-  'params',
-]);
-
-const IDENTIFIER_QUERY_KEYS = new Set(['userid', 'user_id', 'uid', 'kguid', 'kugouid', 't_userid']);
-const DISPLAY_NAME_KEYS = new Set(['nickname', 'username', 'display_name', 'displayname']);
-const SENSITIVE_BODY_KEYS = new Set([
-  ...SENSITIVE_QUERY_KEYS,
-  'pat',
-  'gh_token',
-  'userinfo',
-  'password',
-]);
-
-function maskIdentifierForLog(value) {
-  const chars = Array.from(String(value ?? ''));
-
-  if (chars.length === 0) return '';
-  if (chars.length <= 2) return '*'.repeat(chars.length);
-  if (chars.length <= 6) return `${chars[0]}***${chars[chars.length - 1]}`;
-  return `${chars.slice(0, 3).join('')}***${chars.slice(-2).join('')}`;
-}
-
-function sanitizeUrlForLog(rawUrl) {
-  const decodedUrl = decode(rawUrl || '');
-  const queryStart = decodedUrl.indexOf('?');
-
-  if (queryStart === -1) {
-    return decodedUrl;
-  }
-
-  const pathName = decodedUrl.slice(0, queryStart);
-  const queryString = decodedUrl.slice(queryStart + 1);
-
-  const params = new URLSearchParams(queryString);
-  for (const key of Array.from(params.keys())) {
-    const normalizedKey = key.toLowerCase();
-    if (IDENTIFIER_QUERY_KEYS.has(normalizedKey)) {
-      params.set(key, maskIdentifierForLog(params.get(key)));
-    } else if (SENSITIVE_QUERY_KEYS.has(normalizedKey)) {
-      params.set(key, '[REDACTED]');
-    }
-  }
-
-  const sanitizedQuery = params.toString().replace(/%5BREDACTED%5D/g, '[REDACTED]');
-  return sanitizedQuery ? `${pathName}?${sanitizedQuery}` : pathName;
-}
-
-function maskDisplayNameForLog(value) {
-  const chars = Array.from(String(value ?? ''));
-
-  if (chars.length === 0) return '';
-  if (chars.length === 1) return `${chars[0]}********`;
-  if (chars.length === 2) return `${chars[0]}********${chars[1]}`;
-  return `${chars.slice(0, 2).join('')}********${chars[chars.length - 1]}`;
-}
-
-function sanitizeStringForLog(value) {
-  return String(value)
-    .replace(/(github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]{20,})/g, '[REDACTED]')
-    .replace(/(?<!\d)(1[3-9]\d{9})(?!\d)/g, (phone) => `${phone.slice(0, 2)}*******${phone.slice(-2)}`);
-}
-
-function sanitizeBodyForLog(value, depth = 0) {
-  if (value == null) return value;
-  if (typeof value !== 'object') {
-    return typeof value === 'string' ? sanitizeStringForLog(value) : value;
-  }
-  if (depth >= 4) return '[Object]';
-  if (Array.isArray(value)) {
-    return value.slice(0, 20).map((item) => sanitizeBodyForLog(item, depth + 1));
-  }
-
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => {
-      const normalizedKey = key.toLowerCase();
-      if (DISPLAY_NAME_KEYS.has(normalizedKey)) {
-        return [key, maskDisplayNameForLog(item)];
-      }
-      if (IDENTIFIER_QUERY_KEYS.has(normalizedKey)) {
-        return [key, maskIdentifierForLog(item)];
-      }
-      if (SENSITIVE_BODY_KEYS.has(normalizedKey)) {
-        return [key, '[REDACTED]'];
-      }
-      return [key, sanitizeBodyForLog(item, depth + 1)];
-    })
-  );
-}
-
 /**
- * @typedef {{
- * identifier?: string,
- * route: string,
- * module: any,
- * }}ModuleDefinition
+ * @typedef {{ identifier?: string; route: string; module: any }} ModuleDefinition
+ * @typedef {{ server?: import('http').Server }} ExpressExtension
  */
 
-/**
- * @typedef {{
- *  server?: import('http').Server,
- * }} ExpressExtension
- */
+// ========== 全局设备标识常量 ==========
+/** 全局唯一设备 GUID（MD5 哈希） */
+const guid = cryptoMd5(getGuid());
+/** 随机 10 位大写开发设备标识 */
+const serverDev = randomString(10).toUpperCase();
 
+// ========== 加载环境变量 ==========
 const envPath = path.join(process.cwd(), '.env');
 if (fs.existsSync(envPath)) {
   dotenv.config({ path: envPath, quiet: true });
 }
 
 /**
- *  描述：动态获取模块定义
- * @param {string}  modulesPath  模块路径(TS)
- * @param {Record<string, string>} specificRoute  特定模块定义
- * @param {boolean} doRequire  如果为 true，则使用 require 加载模块, 否则打印模块路径， 默认为true
- * @return { Promise<ModuleDefinition[]> }
- * @example getModuleDefinitions("./module", {"album_new.js": "/album/create"})
+ * 动态扫描指定目录获取所有 API 模块定义
+ * @param {string} modulesPath - 模块目录路径
+ * @param {Record<string, string>} specificRoute - 特定路由映射
+ * @param {boolean} [doRequire=true] - 是否实际加载模块
+ * @returns {Promise<ModuleDefinition[]>}
  */
 async function getModulesDefinitions(modulesPath, specificRoute, doRequire = true) {
   const files = await fs.promises.readdir(modulesPath);
   const parseRoute = (fileName) =>
-    specificRoute && fileName in specificRoute ? specificRoute[fileName] : `/${fileName.replace(/\.(js)$/i, '').replace(/_/g, '/')}`;
+    specificRoute && fileName in specificRoute
+      ? specificRoute[fileName]
+      : `/${fileName.replace(/\.(js)$/i, '').replace(/_/g, '/')}`;
 
   return files
     .reverse()
@@ -158,26 +58,23 @@ async function getModulesDefinitions(modulesPath, specificRoute, doRequire = tru
 }
 
 /**
- * 创建服务
- * @param {ModuleDefinition[]} moduleDefs
- * @return {Promise<import('express').Express>}
+ * 构建并配置 Express 应用实例
+ * @param {ModuleDefinition[]} [moduleDefs]
+ * @returns {Promise<import('express').Express>}
  */
 async function consturctServer(moduleDefs) {
   const app = express();
   const { CORS_ALLOW_ORIGIN } = process.env;
-  // 默认仅允许本机来源，避免反射任意 Origin 带来的 CSRF/凭据泄露风险；
-  // 仅当显式配置 CORS_ALLOW_ORIGIN 时才放宽，并仅在配置时允许凭据。
-  const allowOrigin = CORS_ALLOW_ORIGIN || 'http://127.0.0.1:3000';
   app.set('trust proxy', true);
 
   /**
-   * CORS & Preflight request
+   * CORS 跨域中间件
    */
   app.use((req, res, next) => {
     if (req.path !== '/' && !req.path.includes('.')) {
       res.set({
-        'Access-Control-Allow-Credentials': !!CORS_ALLOW_ORIGIN,
-        'Access-Control-Allow-Origin': allowOrigin,
+        'Access-Control-Allow-Credentials': true,
+        'Access-Control-Allow-Origin': CORS_ALLOW_ORIGIN || req.headers.origin || '*',
         'Access-Control-Allow-Headers': 'Authorization,X-Requested-With,Content-Type,Cache-Control',
         'Access-Control-Allow-Methods': 'PUT,POST,GET,DELETE,OPTIONS',
         'Content-Type': 'application/json; charset=utf-8',
@@ -186,7 +83,9 @@ async function consturctServer(moduleDefs) {
     req.method === 'OPTIONS' ? res.status(204).end() : next();
   });
 
-  // Cookie Parser
+  /**
+   * Cookie 解析中间件
+   */
   app.use((req, _, next) => {
     req.cookies = {};
     (req.headers.cookie || '').split(/;\s+|(?<!\s)\s+$/g).forEach((pair) => {
@@ -199,42 +98,59 @@ async function consturctServer(moduleDefs) {
     next();
   });
 
-  // 将当前平台写入Cookie 以方便查看
+  /**
+   * 平台标识 Cookie 注入中间件
+   * 自动注入 KUGOU_API_PLATFORM / MID / GUID / DEV / MAC / WEBGL
+   */
   app.use((req, res, next) => {
-    const cookies = (req.headers.cookie || '').split(/;\s+|(?<!\s)\s+$/g);
-    if (!cookies.includes('KUGOU_API_PLATFORM')) {
-      if (req.protocol === 'https') {
-        res.append('Set-Cookie', `KUGOU_API_PLATFORM=${process.env.platform}; PATH=/; SameSite=None; Secure`);
-      } else {
-        res.append('Set-Cookie', `KUGOU_API_PLATFORM=${process.env.platform}; PATH=/`);
-      }
-    }
+    const cookies = req.cookies || {};
+    const isHttps = req.protocol === 'https';
+    const cookieSuffix = isHttps ? '; PATH=/; SameSite=None; Secure' : '; PATH=/';
 
+    const ensureCookie = (key, value) => {
+      if (Object.prototype.hasOwnProperty.call(cookies, key)) return;
+      cookies[key] = String(value);
+      res.append('Set-Cookie', `${key}=${cookies[key]}${cookieSuffix}`);
+    };
+
+    const mid = calculateMid(process.env.KUGOU_API_GUID ?? guid);
+    ensureCookie('KUGOU_API_PLATFORM', process.env.platform);
+    ensureCookie('KUGOU_API_MID', mid);
+    ensureCookie('KUGOU_API_GUID', process.env.KUGOU_API_GUID ?? guid);
+    ensureCookie('KUGOU_API_DEV', (process.env.KUGOU_API_DEV ?? serverDev).toUpperCase());
+    ensureCookie('KUGOU_API_MAC', (process.env.KUGOU_API_MAC ?? '02:00:00:00:00:00').toUpperCase());
+    ensureCookie('KUGOU_API_WEBGL', process.env.KUGOU_API_WEBGL ?? generateWebGLHash());
+
+    req.cookies = cookies;
     next();
   });
 
-  // Body Parser
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: false }));
+  /**
+   * 请求体解析中间件（含大小限制）
+   */
+  app.use(express.json({ limit: '5mb' }));
+  app.use(express.urlencoded({ extended: false, limit: '5mb' }));
+  app.use(express.raw({ type: 'application/octet-stream', limit: '10mb' }));
 
   /**
-   * Serving static files
+   * 静态文件服务
    */
   app.use(express.static(path.join(__dirname, 'public')));
-
-  /**
-   * docs
-   */
-
   app.use('/docs', express.static(path.join(__dirname, 'docs')));
 
-  // Cache
+  /**
+   * API 响应缓存（2 分钟，仅缓存成功请求）
+   */
   app.use(cache('2 minutes', (_, res) => res.statusCode === 200));
 
+  /**
+   * 动态路由注册
+   */
   const moduleDefinitions = moduleDefs || (await getModulesDefinitions(path.join(__dirname, 'module'), {}));
 
   for (const moduleDef of moduleDefinitions) {
     app.use(moduleDef.route, async (req, res) => {
+      // 解析 query 和 body 中的 cookie 字符串
       [req.query, req.body].forEach((item) => {
         if (typeof item.cookie === 'string') {
           item.cookie = cookieToJson(decode(item.cookie));
@@ -242,9 +158,10 @@ async function consturctServer(moduleDefs) {
       });
 
       const { cookie, ...params } = req.query;
+      const body = Buffer.isBuffer(req.body) ? { data: req.body } : req.body;
+      const query = Object.assign({}, { cookie: Object.assign({}, req.cookies, cookie) }, params, body);
 
-      const query = Object.assign({}, { cookie: Object.assign(req.cookies, cookie) }, params, { body: req.body });
-
+      // Authorization 头解析为 Cookie
       const authHeader = req.headers['authorization'];
       if (authHeader) {
         query.cookie = {
@@ -252,6 +169,7 @@ async function consturctServer(moduleDefs) {
           ...cookieToJson(authHeader),
         };
       }
+
       try {
         const moduleResponse = await moduleDef.module(query, (config) => {
           let ip = req.ip;
@@ -262,25 +180,21 @@ async function consturctServer(moduleDefs) {
           return createRequest(config);
         });
 
-        console.log('[OK]', sanitizeUrlForLog(req.originalUrl));
+        console.log('[OK]', decode(req.originalUrl));
 
+        // 处理模块返回的 Cookie
         const cookies = moduleResponse.cookie;
         if (!query.noCookie) {
           if (Array.isArray(cookies) && cookies.length > 0) {
             if (req.protocol === 'https') {
-              // Try to fix CORS SameSite Problem
               res.append(
                 'Set-Cookie',
-                cookies.map((cookie) => {
-                  return `${cookie}; PATH=/; SameSite=None; Secure`;
-                })
+                cookies.map((cookie) => `${cookie}; PATH=/; SameSite=None; Secure`)
               );
             } else {
               res.append(
                 'Set-Cookie',
-                cookies.map((cookie) => {
-                  return `${cookie}; PATH=/`;
-                })
+                cookies.map((cookie) => `${cookie}; PATH=/`)
               );
             }
           }
@@ -289,11 +203,6 @@ async function consturctServer(moduleDefs) {
         res.header(moduleResponse.headers).status(moduleResponse.status).send(moduleResponse.body);
       } catch (e) {
         const moduleResponse = e;
-        console.log('[ERR]', sanitizeUrlForLog(req.originalUrl), {
-          status: moduleResponse.status,
-          body: sanitizeBodyForLog(moduleResponse.body),
-        });
-
         if (!moduleResponse.body) {
           res.status(404).send({
             code: 404,
@@ -302,7 +211,6 @@ async function consturctServer(moduleDefs) {
           });
           return;
         }
-
         res.header(moduleResponse.headers).status(moduleResponse.status).send(moduleResponse.body);
       }
     });
@@ -312,7 +220,7 @@ async function consturctServer(moduleDefs) {
 }
 
 /**
- * Serve the KG API
+ * 启动 HTTP 服务
  * @returns {Promise<import('express').Express & ExpressExtension>}
  */
 async function startService() {

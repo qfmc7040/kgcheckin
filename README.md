@@ -25,7 +25,7 @@ GitHub Actions 实现 `酷狗概念VIP` 自动签到，每天领取总计 `两�
 >
 > **常见错误**：
 > 
-> 执行签到报错未配置，为 PAT 秘钥权限设置问题，需正确设置 Secret 权限并再次执行登录，**Repository secrets**处除了配置的**PAT Secret**外，成功写入**USERINFO**即可正常执行签到
+> 执行签到报错未配置，为`PAT`秘钥权限设置问题，需正确设置`PAT Secret`权限并再次执行登录，**Repository secrets**处除了配置的**PAT Secret**外，成功写入**USERINFO**即可正常执行签到
 
 <details>
 

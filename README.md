@@ -1,4 +1,4 @@
-# 酷狗签到
+# 酷狗概念版签到
 
 GitHub Actions 实现 `酷狗概念VIP` 自动签到，每天领取总计 `两天酷狗概念VIP`
 
@@ -23,13 +23,17 @@ GitHub Actions 实现 `酷狗概念VIP` 自动签到，每天领取总计 `两�
 >
 > 若登录后听歌领取失败，请到APP 活动中心->天天签到领VIP(这个活动新用户好像没有) 查看当日是否已经领取VIP。
 
+<details>
+
+<summary>⚠️部署教程⚠️</summary>
+
 1. Fork 本仓库
 
 1. 创建添加令牌
    - **创建令牌**  
      复制下方官网链接，在浏览器中打开
 
-     ```shell
+     ```html copy
      https://github.com/settings/personal-access-tokens/new
      ```
 
@@ -95,14 +99,20 @@ API源代码来自 [MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMusicAp
 
 ## Secret 位置
 
-1. 步骤一
+  ### 步骤一
+   
    ![步骤一](./imgs/步骤一.jpg)
-1. 步骤二
+  ### 步骤二
+   
    ![步骤二](./imgs/步骤二.jpg)
-1. 步骤三
+  ### 步骤三
+   
    ![步骤三](./imgs/步骤三.jpg)
-1. 步骤四
+  ### 步骤四
+   
    ![步骤四](./imgs/步骤四.jpg)
+
+</details>
 
 ## 致谢
 

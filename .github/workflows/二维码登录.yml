@@ -67,6 +67,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="qr-${{ github.run_id }}"
+
+          {
+            echo "## 🎵 酷狗音乐扫码登录"
+            echo ""
+            echo "请点击下方链接，浏览器打开即可扫码（约 2 分钟内有效）："
+            echo ""
+            for f in qr/qr-*.png; do
+              echo "- 🔗 [账号 $(basename "$f" .png | sed 's/qr-//')] https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename "$f")"
+            done
+            echo ""
+            echo "⏳ 二维码有效期约 2 分钟，请尽快扫描"
+          } >> "$GITHUB_STEP_SUMMARY"
+
           gh release create "$TAG" qr/qr-*.png qr/login.html \
             --repo "$GITHUB_REPOSITORY" \
             --title "酷狗扫码登录二维码" \
@@ -80,20 +93,6 @@ jobs:
             echo "  🔗 https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename "$f")"
           done
           echo "═══════════════════════════════════════════════════════"
-
-          {
-            echo "## 🎵 酷狗音乐扫码登录"
-            echo ""
-            echo "请点击下方链接，浏览器打开即可扫码（约 2 分钟内有效）："
-            echo ""
-            for f in qr/qr-*.png; do
-              echo "- 🔗 [账号 $(basename "$f" .png | sed 's/qr-//')] https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename "$f")"
-            done
-            echo ""
-            echo "🌐 https://github.com/${{ github.repository }}/releases/download/$TAG/login.html"
-            echo ""
-            echo "⏳ 二维码有效期约 2 分钟，请尽快扫描"
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 上传二维码 HTML 页面（兜底备份）
         if: ${{ always() && steps.gen.outcome == 'success' && steps.publish.outcome != 'success' }}

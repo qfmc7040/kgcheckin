@@ -90,7 +90,7 @@ jobs:
               echo "- 🔗 [账号 $(basename "$f" .png | sed 's/qr-//')] https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename "$f")"
             done
             echo ""
-            echo "🌐 "
+            echo "🌐 https://github.com/${{ github.repository }}/releases/download/$TAG/login.html"
             echo ""
             echo "⏳ 二维码有效期约 2 分钟，请尽快扫描"
           } >> "$GITHUB_STEP_SUMMARY"

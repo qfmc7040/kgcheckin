@@ -2,8 +2,8 @@ name: 仓库保活
 
 on:
   schedule:
-    # 每月 1 号运行一次，避免仓库未更新导致 Actions 被禁用
     - cron: '0 0 1 * *'
+      timezone: "Asia/Shanghai"
   workflow_dispatch:
 
 jobs:
@@ -14,9 +14,7 @@ jobs:
 
     steps:
       - name: 检出仓库
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@v7
 
       - name: 更新保活时间戳
         run: |
@@ -44,7 +42,10 @@ jobs:
           if git diff --staged --quiet; then
             echo "无变更"
           else
-            git commit -m "chore: keepalive at $(date -u +'%Y-%m-%d')"
-            git push
+            git commit -m "chore: keepalive at $(date -u +'%Y-%m-%d')" --no-verify
+            git fetch origin
+            git merge --ff-only origin/${{ github.ref_name }} || git merge --ff origin/${{ github.ref_name }}
+            git push origin HEAD
             echo "保活提交成功"
           fi
+

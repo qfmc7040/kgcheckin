@@ -31,46 +31,45 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - name: 检出仓库
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+      
       - name: 创建 Node 环境
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: ./api/package-lock.json
+      
       - name: 检查 GitHub CLI
         if: github.event.inputs.step == '登录'
         run: |
           if ! command -v gh >/dev/null 2>&1; then
-            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
             sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
             sudo apt update
             sudo apt install gh -y
           fi
           gh --version
-      - name: 缓存依赖
-        id: cache-npm
-        uses: actions/cache@v4
-        with:
-          path: ./api/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('./api/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+      
       - name: 安装依赖
-        run: npm run install
-        if: ${{ steps.cache-npm.outputs.cache-hit != 'true' }}
+        run: npm ci
+        working-directory: ./api
+      
       - name: 发送验证码
         if: github.event.inputs.step == '发送验证码'
         run: npm run sent
+        working-directory: ./api
         env:
           PHONE: ${{ secrets.PHONE }}
+      
       - name: 手机号登录
         if: github.event.inputs.step == '登录'
         run: npm run phoneLogin
+        working-directory: ./api
         env:
           PHONE: ${{ secrets.PHONE }}
           CODE: ${{ secrets.CODE }}

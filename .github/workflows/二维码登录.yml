@@ -60,7 +60,7 @@ jobs:
         env:
           NUMBER: ${{ github.event.inputs.number }}
 
-      - name: 发布二维码图片直链（👈 点击即可查看，无需下载解压）
+      - name: 发布二维码图片直链（👈 点击即可查看）
         id: publish
         if: ${{ always() && steps.gen.outcome == 'success' }}
         env:
@@ -71,7 +71,7 @@ jobs:
           {
             echo "## 🎵 酷狗音乐扫码登录"
             echo ""
-            echo "请点击下方链接，浏览器打开即可扫码（约 2 分钟内有效）："
+            echo "请点击下方链接扫码（约 2 分钟内有效）："
             echo ""
             for f in qr/qr-*.png; do
               echo "- 🔗 [账号 $(basename "$f" .png | sed 's/qr-//')] https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename "$f")"
@@ -87,7 +87,7 @@ jobs:
 
           echo ""
           echo "═══════════════════════════════════════════════════════"
-          echo "  📱 点击下方链接，浏览器直接显示二维码图片（无需解压）："
+          echo "  📱 点击下方链接："
           echo "═══════════════════════════════════════════════════════"
           for f in qr/qr-*.png; do
             echo "  🔗 https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename "$f")"
